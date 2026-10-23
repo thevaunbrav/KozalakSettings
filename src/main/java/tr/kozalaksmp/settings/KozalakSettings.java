@@ -1,0 +1,145 @@
+package tr.kozalaksmp.settings;
+
+import io.papermc.paper.event.player.AsyncChatEvent;
+import net.kyori.adventure.text.Component;
+import net.kyori.adventure.text.format.NamedTextColor;
+import org.bukkit.Bukkit;
+import org.bukkit.Material;
+import org.bukkit.command.Command;
+import org.bukkit.command.CommandSender;
+import org.bukkit.configuration.file.YamlConfiguration;
+import org.bukkit.entity.Player;
+import org.bukkit.event.EventHandler;
+import org.bukkit.event.EventPriority;
+import org.bukkit.event.Listener;
+import org.bukkit.event.inventory.InventoryClickEvent;
+import org.bukkit.event.inventory.InventoryDragEvent;
+import org.bukkit.inventory.Inventory;
+import org.bukkit.inventory.InventoryHolder;
+import org.bukkit.inventory.ItemStack;
+import org.bukkit.inventory.meta.ItemMeta;
+import org.bukkit.plugin.java.JavaPlugin;
+import org.jetbrains.annotations.NotNull;
+
+import java.io.File;
+import java.io.IOException;
+import java.util.List;
+import java.util.UUID;
+import java.util.logging.Level;
+
+public final class KozalakSettings extends JavaPlugin implements Listener {
+    private File preferencesFile;
+    private YamlConfiguration preferences;
+
+    private enum Menu { MAIN, CHAT }
+
+    private static final class MenuHolder implements InventoryHolder {
+        private final Menu type;
+        private Inventory inventory;
+        private MenuHolder(Menu type) { this.type = type; }
+        @Override public @NotNull Inventory getInventory() { return inventory; }
+    }
+
+    @Override public void onEnable() {
+        if (!getDataFolder().exists() && !getDataFolder().mkdirs()) {
+            getLogger().warning("Plugin klasoru olusturulamadi.");
+        }
+        preferencesFile = new File(getDataFolder(), "players.yml");
+        preferences = YamlConfiguration.loadConfiguration(preferencesFile);
+        Bukkit.getPluginManager().registerEvents(this, this);
+        getLogger().info("KozalakSettings hazir.");
+    }
+
+    @Override public void onDisable() { savePreferences(); }
+
+    private boolean publicChatEnabled(UUID uuid) {
+        return preferences.getBoolean("players." + uuid + ".public-chat", true);
+    }
+
+    private void setPublicChat(UUID uuid, boolean enabled) {
+        preferences.set("players." + uuid + ".public-chat", enabled);
+        savePreferences();
+    }
+
+    private void savePreferences() {
+        try { preferences.save(preferencesFile); }
+        catch (IOException ex) { getLogger().log(Level.SEVERE, "Oyuncu ayarlari kaydedilemedi", ex); }
+    }
+
+    @Override public boolean onCommand(@NotNull CommandSender sender, @NotNull Command command,
+                                       @NotNull String label, @NotNull String[] args) {
+        if (!(sender instanceof Player player)) {
+            sender.sendMessage("Bu komut sadece oyuncular icindir.");
+            return true;
+        }
+        openMain(player);
+        return true;
+    }
+
+    private ItemStack button(Material material, String title, String lore) {
+        ItemStack item = new ItemStack(material);
+        ItemMeta meta = item.getItemMeta();
+        meta.displayName(Component.text(title, NamedTextColor.AQUA));
+        meta.lore(List.of(Component.text(lore, NamedTextColor.GRAY)));
+        item.setItemMeta(meta);
+        return item;
+    }
+
+    private Inventory menu(Menu type, int size, String title) {
+        MenuHolder holder = new MenuHolder(type);
+        Inventory inv = Bukkit.createInventory(holder, size, Component.text(title));
+        holder.inventory = inv;
+        return inv;
+    }
+
+    private void openMain(Player player) {
+        Inventory inv = menu(Menu.MAIN, 54, "Kozalak SMP | Ayarlar");
+        inv.setItem(22, button(Material.OAK_SIGN, "Sohbet", "Sohbet ayarlarini yonet"));
+        player.openInventory(inv);
+    }
+
+    private void openChat(Player player) {
+        Inventory inv = menu(Menu.CHAT, 27, "Kozalak SMP | Sohbet");
+        updateChatButton(inv, player);
+        inv.setItem(18, button(Material.ARROW, "Geri", "Ana menuye don"));
+        player.openInventory(inv);
+    }
+
+    private void updateChatButton(Inventory inv, Player player) {
+        boolean enabled = publicChatEnabled(player.getUniqueId());
+        inv.setItem(13, button(enabled ? Material.LIME_DYE : Material.GRAY_DYE,
+                enabled ? "Public Chat: ACIK" : "Public Chat: KAPALI",
+                "Diger oyuncularin genel sohbet mesajlarini goster/gizle"));
+    }
+
+    @EventHandler public void onClick(InventoryClickEvent event) {
+        if (!(event.getView().getTopInventory().getHolder() instanceof MenuHolder holder)) return;
+        event.setCancelled(true);
+        if (!(event.getWhoClicked() instanceof Player player)) return;
+        if (event.getClickedInventory() != event.getView().getTopInventory()) return;
+        int slot = event.getRawSlot();
+        if (holder.type == Menu.MAIN && slot == 22) {
+            openChat(player);
+        } else if (holder.type == Menu.CHAT && slot == 13) {
+            boolean enabled = !publicChatEnabled(player.getUniqueId());
+            setPublicChat(player.getUniqueId(), enabled);
+            updateChatButton(event.getView().getTopInventory(), player);
+            player.sendMessage(Component.text("Public Chat " + (enabled ? "ACIK" : "KAPALI"),
+                    enabled ? NamedTextColor.GREEN : NamedTextColor.RED));
+        } else if (holder.type == Menu.CHAT && slot == 18) {
+            openMain(player);
+        }
+    }
+
+    @EventHandler public void onDrag(InventoryDragEvent event) {
+        if (event.getView().getTopInventory().getHolder() instanceof MenuHolder) {
+            event.setCancelled(true);
+        }
+    }
+
+    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
+    public void onChat(AsyncChatEvent event) {
+        event.viewers().removeIf(viewer -> viewer instanceof Player recipient
+                && !publicChatEnabled(recipient.getUniqueId()));
+    }
+}
