@@ -1,0 +1,10 @@
+name: KozalakSettings
+version: 1.0.0
+main: tr.kozalaksmp.settings.KozalakSettings
+api-version: '26.2'
+author: thevaunbrav
+description: Kozalak SMP oyuncu ayarlari
+commands:
+  settings:
+    description: Oyuncu ayarlarini acar
+    usage: /settings
