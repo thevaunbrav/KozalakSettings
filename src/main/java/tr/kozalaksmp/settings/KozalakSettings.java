@@ -29,6 +29,7 @@ import java.util.UUID;
 import java.util.logging.Level;
 
 public final class KozalakSettings extends JavaPlugin implements Listener {
+    private volatile boolean chatDebug = false;
     private File preferencesFile;
     private YamlConfiguration preferences;
 
@@ -76,6 +77,16 @@ public final class KozalakSettings extends JavaPlugin implements Listener {
                                        @NotNull String label, @NotNull String[] args) {
         if (!(sender instanceof Player player)) {
             sender.sendMessage("Bu komut sadece oyuncular icindir.");
+            return true;
+        }
+        if (args.length == 1 && args[0].equalsIgnoreCase("debug")) {
+            if (!player.isOp()) {
+                player.sendMessage(Component.text("Bu komut icin OP gerekli.", NamedTextColor.RED));
+                return true;
+            }
+            chatDebug = !chatDebug;
+            player.sendMessage(Component.text("Chat debug: " + (chatDebug ? "ACIK" : "KAPALI"), NamedTextColor.YELLOW));
+            player.sendMessage(Component.text("Genel Sohbet ayarin: " + (publicChatEnabled(player.getUniqueId()) ? "ACIK" : "KAPALI"), NamedTextColor.YELLOW));
             return true;
         }
         openMain(player);
@@ -194,7 +205,17 @@ public final class KozalakSettings extends JavaPlugin implements Listener {
 
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
     public void onChat(AsyncChatEvent event) {
+        int before = event.viewers().size();
         event.viewers().removeIf(viewer -> viewer instanceof Player recipient
                 && !publicChatEnabled(recipient.getUniqueId()));
+        if (chatDebug) {
+            getLogger().info("[CHAT DEBUG] AsyncChatEvent: sender=" + event.getPlayer().getName()
+                    + " viewersBefore=" + before + " viewersAfter=" + event.viewers().size());
+            for (Player online : Bukkit.getOnlinePlayers()) {
+                getLogger().info("[CHAT DEBUG] player=" + online.getName()
+                        + " publicChat=" + publicChatEnabled(online.getUniqueId())
+                        + " inViewers=" + event.viewers().contains(online));
+            }
+        }
     }
 }
