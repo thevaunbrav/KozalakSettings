@@ -15,6 +15,7 @@ import org.bukkit.event.Listener;
 import org.bukkit.event.inventory.InventoryClickEvent;
 import org.bukkit.event.inventory.InventoryDragEvent;
 import org.bukkit.event.player.PlayerCommandPreprocessEvent;
+import org.bukkit.event.entity.PlayerDeathEvent;
 import org.bukkit.inventory.Inventory;
 import org.bukkit.inventory.InventoryHolder;
 import org.bukkit.inventory.ItemStack;
@@ -147,7 +148,9 @@ public final class KozalakSettings extends JavaPlugin implements Listener {
         boolean enabled = notificationEnabled(player.getUniqueId(), NOTIFICATION_KEYS[index]);
         inv.setItem(NOTIFICATION_SLOTS[index], button(NOTIFICATION_ICONS[index],
                 NOTIFICATION_NAMES[index] + ": " + (enabled ? "ACIK" : "KAPALI"),
-                "Tercih kaydedilir; bildirim entegrasyonu henuz yok"));
+                NOTIFICATION_KEYS[index].equals("combat")
+                        ? "Oyuncu olum mesajlarini goster/gizle"
+                        : "Tercih kaydedilir; bildirim entegrasyonu henuz yok"));
     }
 
     @EventHandler public void onClick(InventoryClickEvent event) {
@@ -201,6 +204,21 @@ public final class KozalakSettings extends JavaPlugin implements Listener {
         if (notificationEnabled(target.getUniqueId(), "teleport")) return;
         event.setCancelled(true);
         event.getPlayer().sendMessage(Component.text("Bu oyuncu TPA isteklerini kapatmis.", NamedTextColor.RED));
+    }
+
+    @EventHandler(priority = EventPriority.HIGHEST)
+    public void onPlayerDeath(PlayerDeathEvent event) {
+        Component deathMessage = event.deathMessage();
+        if (deathMessage == null) return;
+        event.deathMessage(null);
+        Bukkit.getScheduler().runTask(this, () -> {
+            for (Player recipient : Bukkit.getOnlinePlayers()) {
+                if (notificationEnabled(recipient.getUniqueId(), "combat")) {
+                    recipient.sendMessage(deathMessage);
+                }
+            }
+            Bukkit.getConsoleSender().sendMessage(deathMessage);
+        });
     }
 
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
