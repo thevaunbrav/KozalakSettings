@@ -31,7 +31,12 @@ public final class KozalakSettings extends JavaPlugin implements Listener {
     private File preferencesFile;
     private YamlConfiguration preferences;
 
-    private enum Menu { MAIN, CHAT }
+    private enum Menu { MAIN, CHAT, NOTIFICATIONS }
+
+    private static final String[] NOTIFICATION_KEYS = {"teleport", "money", "combat", "team", "auction", "crate", "announcements"};
+    private static final String[] NOTIFICATION_NAMES = {"TP Istekleri", "Para", "Savas", "Takim", "Acik Artirma", "Kasa", "Duyurular"};
+    private static final Material[] NOTIFICATION_ICONS = {Material.ENDER_PEARL, Material.GOLD_INGOT, Material.IRON_SWORD, Material.WHITE_BANNER, Material.GOLDEN_HORSE_ARMOR, Material.CHEST, Material.BELL};
+    private static final int[] NOTIFICATION_SLOTS = {10, 11, 12, 13, 14, 15, 16};
 
     private static final class MenuHolder implements InventoryHolder {
         private final Menu type;
@@ -95,6 +100,7 @@ public final class KozalakSettings extends JavaPlugin implements Listener {
     private void openMain(Player player) {
         Inventory inv = menu(Menu.MAIN, 54, "Kozalak SMP | Ayarlar");
         inv.setItem(22, button(Material.OAK_SIGN, "Sohbet", "Sohbet ayarlarini yonet"));
+        inv.setItem(24, button(Material.BELL, "Bildirimler", "Bildirim tercihlerini yonet"));
         player.openInventory(inv);
     }
 
@@ -112,6 +118,26 @@ public final class KozalakSettings extends JavaPlugin implements Listener {
                 "Diger oyuncularin genel sohbet mesajlarini goster/gizle"));
     }
 
+    private boolean notificationEnabled(UUID uuid, String key) {
+        return preferences.getBoolean("players." + uuid + ".notifications." + key, true);
+    }
+
+    private void openNotifications(Player player) {
+        Inventory inv = menu(Menu.NOTIFICATIONS, 27, "Kozalak SMP | Bildirimler");
+        for (int i = 0; i < NOTIFICATION_KEYS.length; i++) {
+            updateNotificationButton(inv, player, i);
+        }
+        inv.setItem(18, button(Material.ARROW, "Geri", "Ana menuye don"));
+        player.openInventory(inv);
+    }
+
+    private void updateNotificationButton(Inventory inv, Player player, int index) {
+        boolean enabled = notificationEnabled(player.getUniqueId(), NOTIFICATION_KEYS[index]);
+        inv.setItem(NOTIFICATION_SLOTS[index], button(NOTIFICATION_ICONS[index],
+                NOTIFICATION_NAMES[index] + ": " + (enabled ? "ACIK" : "KAPALI"),
+                "Tercih kaydedilir; bildirim entegrasyonu henuz yok"));
+    }
+
     @EventHandler public void onClick(InventoryClickEvent event) {
         if (!(event.getView().getTopInventory().getHolder() instanceof MenuHolder holder)) return;
         event.setCancelled(true);
@@ -120,6 +146,21 @@ public final class KozalakSettings extends JavaPlugin implements Listener {
         int slot = event.getRawSlot();
         if (holder.type == Menu.MAIN && slot == 22) {
             openChat(player);
+        } else if (holder.type == Menu.MAIN && slot == 24) {
+            openNotifications(player);
+        } else if (holder.type == Menu.NOTIFICATIONS && slot == 18) {
+            openMain(player);
+        } else if (holder.type == Menu.NOTIFICATIONS) {
+            for (int i = 0; i < NOTIFICATION_SLOTS.length; i++) {
+                if (slot != NOTIFICATION_SLOTS[i]) continue;
+                String key = NOTIFICATION_KEYS[i];
+                boolean enabled = !notificationEnabled(player.getUniqueId(), key);
+                preferences.set("players." + player.getUniqueId() + ".notifications." + key, enabled);
+                savePreferences();
+                updateNotificationButton(event.getView().getTopInventory(), player, i);
+                player.sendMessage(Component.text(NOTIFICATION_NAMES[i] + " tercihi " + (enabled ? "ACIK" : "KAPALI") + " olarak kaydedildi. Bildirim filtrelemesi henuz aktif degil.", NamedTextColor.YELLOW));
+                break;
+            }
         } else if (holder.type == Menu.CHAT && slot == 13) {
             boolean enabled = !publicChatEnabled(player.getUniqueId());
             setPublicChat(player.getUniqueId(), enabled);
