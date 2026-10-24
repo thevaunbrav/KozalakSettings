@@ -14,6 +14,7 @@ import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
 import org.bukkit.event.inventory.InventoryClickEvent;
 import org.bukkit.event.inventory.InventoryDragEvent;
+import org.bukkit.event.player.PlayerCommandPreprocessEvent;
 import org.bukkit.inventory.Inventory;
 import org.bukkit.inventory.InventoryHolder;
 import org.bukkit.inventory.ItemStack;
@@ -34,7 +35,7 @@ public final class KozalakSettings extends JavaPlugin implements Listener {
     private enum Menu { MAIN, CHAT, NOTIFICATIONS }
 
     private static final String[] NOTIFICATION_KEYS = {"teleport", "money", "combat", "team", "auction", "crate", "announcements"};
-    private static final String[] NOTIFICATION_NAMES = {"TP Istekleri", "Para", "Savas", "Takim", "Acik Artirma", "Kasa", "Duyurular"};
+    private static final String[] NOTIFICATION_NAMES = {"TPA Istekleri", "Para", "Savas", "Takim", "Acik Artirma", "Kasa", "Duyurular"};
     private static final Material[] NOTIFICATION_ICONS = {Material.ENDER_PEARL, Material.GOLD_INGOT, Material.IRON_SWORD, Material.WHITE_BANNER, Material.GOLDEN_HORSE_ARMOR, Material.CHEST, Material.BELL};
     private static final int[] NOTIFICATION_SLOTS = {10, 11, 12, 13, 14, 15, 16};
 
@@ -158,7 +159,7 @@ public final class KozalakSettings extends JavaPlugin implements Listener {
                 preferences.set("players." + player.getUniqueId() + ".notifications." + key, enabled);
                 savePreferences();
                 updateNotificationButton(event.getView().getTopInventory(), player, i);
-                player.sendMessage(Component.text(NOTIFICATION_NAMES[i] + " tercihi " + (enabled ? "ACIK" : "KAPALI") + " olarak kaydedildi. Bildirim filtrelemesi henuz aktif degil.", NamedTextColor.YELLOW));
+                player.sendMessage(Component.text(NOTIFICATION_NAMES[i] + ": " + (enabled ? "ACIK" : "KAPALI"), enabled ? NamedTextColor.GREEN : NamedTextColor.RED));
                 break;
             }
         } else if (holder.type == Menu.CHAT && slot == 13) {
@@ -176,6 +177,19 @@ public final class KozalakSettings extends JavaPlugin implements Listener {
         if (event.getView().getTopInventory().getHolder() instanceof MenuHolder) {
             event.setCancelled(true);
         }
+    }
+
+    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
+    public void onTpaCommand(PlayerCommandPreprocessEvent event) {
+        String[] parts = event.getMessage().trim().split("\\s+");
+        if (parts.length < 2) return;
+        String command = parts[0].toLowerCase(java.util.Locale.ROOT);
+        if (!command.equals("/tpa") && !command.equals("/essentials:tpa")) return;
+        Player target = Bukkit.getPlayerExact(parts[1]);
+        if (target == null) return;
+        if (notificationEnabled(target.getUniqueId(), "teleport")) return;
+        event.setCancelled(true);
+        event.getPlayer().sendMessage(Component.text("Bu oyuncu TPA isteklerini kapatmis.", NamedTextColor.RED));
     }
 
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
