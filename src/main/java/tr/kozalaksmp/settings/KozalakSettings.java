@@ -15,6 +15,8 @@ import org.bukkit.event.Listener;
 import org.bukkit.event.inventory.InventoryClickEvent;
 import org.bukkit.event.inventory.InventoryDragEvent;
 import org.bukkit.event.player.PlayerCommandPreprocessEvent;
+import org.bukkit.event.player.PlayerJoinEvent;
+import org.bukkit.event.player.PlayerQuitEvent;
 import org.bukkit.inventory.Inventory;
 import org.bukkit.inventory.InventoryHolder;
 import org.bukkit.inventory.ItemStack;
@@ -34,6 +36,8 @@ public final class KozalakSettings extends JavaPlugin implements Listener {
     private YamlConfiguration preferences;
 
     private enum Menu { MAIN, CHAT, NOTIFICATIONS }
+
+    private enum JoinLeaveMode { ALL, STAFF, OFF }
 
     private static final String[] NOTIFICATION_KEYS = {"teleport", "money", "combat", "team", "auction", "crate", "announcements"};
     private static final String[] NOTIFICATION_NAMES = {"TPA Istekleri", "Para", "Olum Mesajlari", "Takim", "Acik Artirma", "Kasa", "Duyurular"};
@@ -130,6 +134,28 @@ public final class KozalakSettings extends JavaPlugin implements Listener {
                 "Diger oyuncularin genel sohbet mesajlarini goster/gizle"));
     }
 
+    private JoinLeaveMode joinLeaveMode(UUID uuid) {
+        String value = preferences.getString("players." + uuid + ".join-leave-mode", "ALL");
+        try { return JoinLeaveMode.valueOf(value.toUpperCase(java.util.Locale.ROOT)); }
+        catch (IllegalArgumentException ex) { return JoinLeaveMode.ALL; }
+    }
+
+    private String joinLeaveLabel(JoinLeaveMode mode) {
+        return switch (mode) {
+            case ALL -> "HERKES";
+            case STAFF -> "SADECE YETKILILER";
+            case OFF -> "KAPALI";
+        };
+    }
+
+    private void updateJoinLeaveButton(Inventory inv, Player player) {
+        JoinLeaveMode mode = joinLeaveMode(player.getUniqueId());
+        inv.setItem(22, button(mode == JoinLeaveMode.OFF ? Material.GRAY_DYE :
+                mode == JoinLeaveMode.STAFF ? Material.SHIELD : Material.LIME_DYE,
+                "Giris/Cikis: " + joinLeaveLabel(mode),
+                "Tikla: Herkes > Sadece Yetkililer > Kapali"));
+    }
+
     private boolean notificationEnabled(UUID uuid, String key) {
         return preferences.getBoolean("players." + uuid + ".notifications." + key, true);
     }
@@ -140,6 +166,7 @@ public final class KozalakSettings extends JavaPlugin implements Listener {
             updateNotificationButton(inv, player, i);
         }
         inv.setItem(18, button(Material.ARROW, "Geri", "Ana menuye don"));
+        updateJoinLeaveButton(inv, player);
         player.openInventory(inv);
     }
 
@@ -164,6 +191,17 @@ public final class KozalakSettings extends JavaPlugin implements Listener {
             openNotifications(player);
         } else if (holder.type == Menu.NOTIFICATIONS && slot == 18) {
             openMain(player);
+        } else if (holder.type == Menu.NOTIFICATIONS && slot == 22) {
+            JoinLeaveMode current = joinLeaveMode(player.getUniqueId());
+            JoinLeaveMode next = switch (current) {
+                case ALL -> JoinLeaveMode.STAFF;
+                case STAFF -> JoinLeaveMode.OFF;
+                case OFF -> JoinLeaveMode.ALL;
+            };
+            preferences.set("players." + player.getUniqueId() + ".join-leave-mode", next.name());
+            savePreferences();
+            updateJoinLeaveButton(event.getView().getTopInventory(), player);
+            player.sendMessage(Component.text("Giris/Cikis bildirimleri: " + joinLeaveLabel(next), NamedTextColor.GREEN));
         } else if (holder.type == Menu.NOTIFICATIONS) {
             for (int i = 0; i < NOTIFICATION_SLOTS.length; i++) {
                 if (slot != NOTIFICATION_SLOTS[i]) continue;
@@ -196,6 +234,41 @@ public final class KozalakSettings extends JavaPlugin implements Listener {
         if (event.getView().getTopInventory().getHolder() instanceof MenuHolder) {
             event.setCancelled(true);
         }
+    }
+
+
+    // SKWelcome settings.yml: join.enabled=false and quit.enabled=false are required
+    // to prevent duplicate messages. SKWelcome still handles welcome titles/greetings.
+    private void broadcastJoinLeave(Player subject, boolean joining) {
+        boolean staff = subject.hasPermission("skwelcome.rank.staff");
+        Component message;
+        if (staff) {
+            message = Component.text("★ ", NamedTextColor.GOLD)
+                    .append(Component.text("Yetkili ", NamedTextColor.WHITE))
+                    .append(Component.text(subject.getName(), NamedTextColor.GOLD))
+                    .append(Component.text(joining ? " burada." : " ayrıldı.", NamedTextColor.WHITE));
+        } else {
+            message = Component.text(joining ? "+ " : "- ", joining ? NamedTextColor.GREEN : NamedTextColor.RED)
+                    .append(Component.text(subject.getName(), NamedTextColor.GRAY));
+        }
+        for (Player recipient : Bukkit.getOnlinePlayers()) {
+            JoinLeaveMode mode = joinLeaveMode(recipient.getUniqueId());
+            if (mode == JoinLeaveMode.OFF || (mode == JoinLeaveMode.STAFF && !staff)) continue;
+            recipient.sendMessage(message);
+        }
+    }
+
+    @EventHandler(priority = EventPriority.MONITOR)
+    public void onPlayerJoin(PlayerJoinEvent event) {
+        // Suppress vanilla join lines; SKWelcome's own lines must be disabled in its config.
+        event.joinMessage(null);
+        broadcastJoinLeave(event.getPlayer(), true);
+    }
+
+    @EventHandler(priority = EventPriority.MONITOR)
+    public void onPlayerQuit(PlayerQuitEvent event) {
+        event.quitMessage(null);
+        broadcastJoinLeave(event.getPlayer(), false);
     }
 
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
