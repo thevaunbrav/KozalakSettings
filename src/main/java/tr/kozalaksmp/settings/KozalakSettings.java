@@ -15,7 +15,6 @@ import org.bukkit.event.Listener;
 import org.bukkit.event.inventory.InventoryClickEvent;
 import org.bukkit.event.inventory.InventoryDragEvent;
 import org.bukkit.event.player.PlayerCommandPreprocessEvent;
-import org.bukkit.event.entity.PlayerDeathEvent;
 import org.bukkit.inventory.Inventory;
 import org.bukkit.inventory.InventoryHolder;
 import org.bukkit.inventory.ItemStack;
@@ -210,21 +209,6 @@ public final class KozalakSettings extends JavaPlugin implements Listener {
         if (notificationEnabled(target.getUniqueId(), "teleport")) return;
         event.setCancelled(true);
         event.getPlayer().sendMessage(Component.text("Bu oyuncu TPA isteklerini kapatmis.", NamedTextColor.RED));
-    }
-
-    @EventHandler(priority = EventPriority.HIGHEST)
-    public void onPlayerDeath(PlayerDeathEvent event) {
-        Component deathMessage = event.deathMessage();
-        if (deathMessage == null) return;
-        event.deathMessage(null);
-        Bukkit.getScheduler().runTask(this, () -> {
-            for (Player recipient : Bukkit.getOnlinePlayers()) {
-                if (notificationEnabled(recipient.getUniqueId(), "combat")) {
-                    recipient.sendMessage(deathMessage);
-                }
-            }
-            Bukkit.getConsoleSender().sendMessage(deathMessage);
-        });
     }
 
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
