@@ -37,8 +37,8 @@ public final class KozalakSettings extends JavaPlugin implements Listener {
     private enum Menu { MAIN, CHAT, NOTIFICATIONS }
 
     private static final String[] NOTIFICATION_KEYS = {"teleport", "money", "combat", "team", "auction", "crate", "announcements"};
-    private static final String[] NOTIFICATION_NAMES = {"TPA Istekleri", "Para", "Savas", "Takim", "Acik Artirma", "Kasa", "Duyurular"};
-    private static final Material[] NOTIFICATION_ICONS = {Material.ENDER_PEARL, Material.GOLD_INGOT, Material.IRON_SWORD, Material.WHITE_BANNER, Material.GOLDEN_HORSE_ARMOR, Material.CHEST, Material.BELL};
+    private static final String[] NOTIFICATION_NAMES = {"TPA Istekleri", "Para", "Olum Mesajlari", "Takim", "Acik Artirma", "Kasa", "Duyurular"};
+    private static final Material[] NOTIFICATION_ICONS = {Material.ENDER_PEARL, Material.GOLD_INGOT, Material.SKELETON_SKULL, Material.WHITE_BANNER, Material.GOLDEN_HORSE_ARMOR, Material.CHEST, Material.BELL};
     private static final int[] NOTIFICATION_SLOTS = {10, 11, 12, 13, 14, 15, 16};
 
     private static final class MenuHolder implements InventoryHolder {
