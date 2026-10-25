@@ -172,6 +172,12 @@ public final class KozalakSettings extends JavaPlugin implements Listener {
                 boolean enabled = !notificationEnabled(player.getUniqueId(), key);
                 preferences.set("players." + player.getUniqueId() + ".notifications." + key, enabled);
                 savePreferences();
+                if (key.equals("combat") && Bukkit.getPluginManager().isPluginEnabled("SKDeathMessages")) {
+                    boolean dispatched = Bukkit.dispatchCommand(player, "deathmessages " + (enabled ? "on" : "off"));
+                    if (!dispatched) {
+                        player.sendMessage(Component.text("SKDeathMessages ayari uygulanamadi.", NamedTextColor.RED));
+                    }
+                }
                 updateNotificationButton(event.getView().getTopInventory(), player, i);
                 player.sendMessage(Component.text(NOTIFICATION_NAMES[i] + ": " + (enabled ? "ACIK" : "KAPALI"), enabled ? NamedTextColor.GREEN : NamedTextColor.RED));
                 break;
