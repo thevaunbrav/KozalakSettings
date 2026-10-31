@@ -17,6 +17,9 @@ import org.bukkit.event.inventory.InventoryDragEvent;
 import org.bukkit.event.player.PlayerCommandPreprocessEvent;
 import org.bukkit.event.player.PlayerJoinEvent;
 import org.bukkit.event.player.PlayerQuitEvent;
+import org.bukkit.permissions.PermissionAttachment;
+import java.util.Map;
+import java.util.HashMap;
 import org.bukkit.inventory.Inventory;
 import org.bukkit.inventory.InventoryHolder;
 import org.bukkit.inventory.ItemStack;
@@ -32,6 +35,7 @@ import java.util.logging.Level;
 
 public final class KozalakSettings extends JavaPlugin implements Listener {
     private volatile boolean chatDebug = false;
+    private final Map<UUID, PermissionAttachment> lagMuteAttachments = new HashMap<>();
     private File preferencesFile;
     private YamlConfiguration preferences;
 
@@ -39,10 +43,10 @@ public final class KozalakSettings extends JavaPlugin implements Listener {
 
     private enum JoinLeaveMode { ALL, STAFF, OFF }
 
-    private static final String[] NOTIFICATION_KEYS = {"teleport", "money", "combat", "team", "auction", "crate", "announcements"};
-    private static final String[] NOTIFICATION_NAMES = {"TPA Istekleri", "Para", "Olum Mesajlari", "Takim", "Acik Artirma", "Kasa", "Duyurular"};
-    private static final Material[] NOTIFICATION_ICONS = {Material.ENDER_PEARL, Material.GOLD_INGOT, Material.SKELETON_SKULL, Material.WHITE_BANNER, Material.GOLDEN_HORSE_ARMOR, Material.CHEST, Material.BELL};
-    private static final int[] NOTIFICATION_SLOTS = {10, 11, 12, 13, 14, 15, 16};
+    private static final String[] NOTIFICATION_KEYS = {"teleport", "money", "combat", "team", "auction", "crate", "announcements", "lag"};
+    private static final String[] NOTIFICATION_NAMES = {"TPA Istekleri", "Para", "Olum Mesajlari", "Takim", "Acik Artirma", "Kasa", "Duyurular", "Lag Temizleyici"};
+    private static final Material[] NOTIFICATION_ICONS = {Material.ENDER_PEARL, Material.GOLD_INGOT, Material.SKELETON_SKULL, Material.WHITE_BANNER, Material.GOLDEN_HORSE_ARMOR, Material.CHEST, Material.BELL, Material.CLOCK};
+    private static final int[] NOTIFICATION_SLOTS = {10, 11, 12, 13, 14, 15, 16, 25};
 
     private static final class MenuHolder implements InventoryHolder {
         private final Menu type;
@@ -58,10 +62,17 @@ public final class KozalakSettings extends JavaPlugin implements Listener {
         preferencesFile = new File(getDataFolder(), "players.yml");
         preferences = YamlConfiguration.loadConfiguration(preferencesFile);
         Bukkit.getPluginManager().registerEvents(this, this);
+        for (Player online : Bukkit.getOnlinePlayers()) applyLagMute(online);
         getLogger().info("KozalakSettings hazir.");
     }
 
-    @Override public void onDisable() { savePreferences(); }
+    @Override public void onDisable() {
+        for (PermissionAttachment attachment : lagMuteAttachments.values()) {
+            try { attachment.remove(); } catch (IllegalArgumentException ignored) { }
+        }
+        lagMuteAttachments.clear();
+        savePreferences();
+    }
 
     private boolean publicChatEnabled(UUID uuid) {
         return preferences.getBoolean("players." + uuid + ".public-chat", true);
@@ -156,6 +167,14 @@ public final class KozalakSettings extends JavaPlugin implements Listener {
                 "Tikla: Herkes > Sadece Yetkililer > Kapali"));
     }
 
+    private void applyLagMute(Player player) {
+        PermissionAttachment attachment = lagMuteAttachments.computeIfAbsent(
+                player.getUniqueId(), id -> player.addAttachment(this));
+        attachment.setPermission("skclearlag.mute",
+                !notificationEnabled(player.getUniqueId(), "lag"));
+        player.recalculatePermissions();
+    }
+
     private boolean notificationEnabled(UUID uuid, String key) {
         return preferences.getBoolean("players." + uuid + ".notifications." + key, true);
     }
@@ -176,6 +195,8 @@ public final class KozalakSettings extends JavaPlugin implements Listener {
                 NOTIFICATION_NAMES[index] + ": " + (enabled ? "ACIK" : "KAPALI"),
                 NOTIFICATION_KEYS[index].equals("combat")
                         ? "Oyuncu olum mesajlarini goster/gizle"
+                        : NOTIFICATION_KEYS[index].equals("lag")
+                        ? "Lag temizleyici mesajlarini ve seslerini goster/gizle"
                         : "Tercih kaydedilir; bildirim entegrasyonu henuz yok"));
     }
 
@@ -209,6 +230,7 @@ public final class KozalakSettings extends JavaPlugin implements Listener {
                 boolean enabled = !notificationEnabled(player.getUniqueId(), key);
                 preferences.set("players." + player.getUniqueId() + ".notifications." + key, enabled);
                 savePreferences();
+                if (key.equals("lag")) applyLagMute(player);
                 if (key.equals("combat") && Bukkit.getPluginManager().isPluginEnabled("SKDeathMessages")) {
                     boolean dispatched = Bukkit.dispatchCommand(player, "deathmessages " + (enabled ? "on" : "off"));
                     if (!dispatched) {
@@ -260,6 +282,7 @@ public final class KozalakSettings extends JavaPlugin implements Listener {
 
     @EventHandler(priority = EventPriority.MONITOR)
     public void onPlayerJoin(PlayerJoinEvent event) {
+        applyLagMute(event.getPlayer());
         // Suppress vanilla join lines; SKWelcome's own lines must be disabled in its config.
         event.joinMessage(null);
         broadcastJoinLeave(event.getPlayer(), true);
@@ -267,6 +290,7 @@ public final class KozalakSettings extends JavaPlugin implements Listener {
 
     @EventHandler(priority = EventPriority.MONITOR)
     public void onPlayerQuit(PlayerQuitEvent event) {
+        lagMuteAttachments.remove(event.getPlayer().getUniqueId());
         event.quitMessage(null);
         broadcastJoinLeave(event.getPlayer(), false);
     }
