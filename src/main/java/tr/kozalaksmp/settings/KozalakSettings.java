@@ -79,6 +79,7 @@ public final class KozalakSettings extends JavaPlugin implements Listener {
         for (Player online : Bukkit.getOnlinePlayers()) {
             applyLagMute(online);
             applyAnnouncements(online);
+            applyPlayerVisibility(online);
         }
         if (Bukkit.getPluginManager().isPluginEnabled("ProtocolLib")) {
             totemPacketListener = new PacketAdapter(this, ListenerPriority.HIGHEST, PacketType.Play.Server.ENTITY_STATUS) {
@@ -153,6 +154,26 @@ public final class KozalakSettings extends JavaPlugin implements Listener {
                 player.playSound(location, Sound.ENTITY_GENERIC_EXPLODE, SoundCategory.BLOCKS, 4.0f, 1.0f);
             }
         }
+    }
+
+    private boolean playerVisibilityEnabled(UUID uuid) {
+        return preferences.getBoolean("players." + uuid + ".player-visibility", true);
+    }
+
+    private void applyPlayerVisibility(Player viewer) {
+        boolean visible = playerVisibilityEnabled(viewer.getUniqueId());
+        for (Player target : Bukkit.getOnlinePlayers()) {
+            if (target.equals(viewer)) continue;
+            if (visible) viewer.showPlayer(this, target);
+            else viewer.hidePlayer(this, target);
+        }
+    }
+
+    private void updatePlayerVisibilityButton(Inventory inv, Player player) {
+        boolean enabled = playerVisibilityEnabled(player.getUniqueId());
+        inv.setItem(20, button(enabled ? Material.ENDER_EYE : Material.GRAY_DYE,
+                "Oyuncu Gorunurlugu: " + (enabled ? "ACIK" : "KAPALI"),
+                "Diger oyunculari sadece kendi ekraninda goster/gizle"));
     }
 
     private boolean sidebarEnabled(UUID uuid) {
@@ -253,6 +274,7 @@ public final class KozalakSettings extends JavaPlugin implements Listener {
         Inventory inv = menu(Menu.MAIN, 54, "Kozalak SMP | Ayarlar");
         inv.setItem(22, button(Material.OAK_SIGN, "Sohbet", "Sohbet ayarlarini yonet"));
         inv.setItem(24, button(Material.BELL, "Bildirimler", "Bildirim tercihlerini yonet"));
+        updatePlayerVisibilityButton(inv, player);
         updateSidebarButton(inv, player);
         updateTotemButton(inv, player);
         updateExplosionButton(inv, player);
@@ -345,7 +367,14 @@ public final class KozalakSettings extends JavaPlugin implements Listener {
         if (!(event.getWhoClicked() instanceof Player player)) return;
         if (event.getClickedInventory() != event.getView().getTopInventory()) return;
         int slot = event.getRawSlot();
-        if (holder.type == Menu.MAIN && slot == 29) {
+        if (holder.type == Menu.MAIN && slot == 20) {
+            boolean enabled = !playerVisibilityEnabled(player.getUniqueId());
+            preferences.set("players." + player.getUniqueId() + ".player-visibility", enabled);
+            savePreferences();
+            applyPlayerVisibility(player);
+            updatePlayerVisibilityButton(event.getView().getTopInventory(), player);
+            player.sendMessage(Component.text("Oyuncu Gorunurlugu: " + (enabled ? "ACIK" : "KAPALI"), enabled ? NamedTextColor.GREEN : NamedTextColor.RED));
+        } else if (holder.type == Menu.MAIN && slot == 29) {
             if (!Bukkit.getPluginManager().isPluginEnabled("TAB")) {
                 player.sendMessage(Component.text("TAB eklentisi aktif degil.", NamedTextColor.RED));
                 return;
@@ -457,6 +486,16 @@ public final class KozalakSettings extends JavaPlugin implements Listener {
     public void onPlayerJoin(PlayerJoinEvent event) {
         applyLagMute(event.getPlayer());
         applyAnnouncements(event.getPlayer());
+        Bukkit.getScheduler().runTask(this, () -> {
+            Player joining = event.getPlayer();
+            if (!joining.isOnline()) return;
+            applyPlayerVisibility(joining);
+            for (Player viewer : Bukkit.getOnlinePlayers()) {
+                if (!viewer.equals(joining) && !playerVisibilityEnabled(viewer.getUniqueId())) {
+                    viewer.hidePlayer(this, joining);
+                }
+            }
+        });
         // Suppress vanilla join lines; SKWelcome's own lines must be disabled in its config.
         event.joinMessage(null);
         broadcastJoinLeave(event.getPlayer(), true);
