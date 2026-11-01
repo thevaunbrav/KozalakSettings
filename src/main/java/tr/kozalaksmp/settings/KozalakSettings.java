@@ -84,18 +84,15 @@ public final class KozalakSettings extends JavaPlugin implements Listener {
                 }
             };
             ProtocolLibrary.getProtocolManager().addPacketListener(totemPacketListener);
-            explosionParticleListener = new PacketAdapter(this, ListenerPriority.HIGHEST, PacketType.Play.Server.WORLD_PARTICLES) {
+            // TNT and other explosion visuals may be produced by the client from
+            // the explosion packet itself, not only from WORLD_PARTICLES.
+            // Cancel only the visual explosion packet for opted-out players.
+            // This does not cancel the actual server-side explosion event.
+            explosionParticleListener = new PacketAdapter(this, ListenerPriority.HIGHEST,
+                    PacketType.Play.Server.EXPLOSION) {
                 @Override public void onPacketSending(PacketEvent event) {
-                    if (explosionEffectEnabled(event.getPlayer().getUniqueId())) return;
-                    try {
-                        String particle = String.valueOf(event.getPacket().getNewParticles().read(0).getParticle())
-                                .toUpperCase(java.util.Locale.ROOT);
-                        if (particle.contains("EXPLOSION") || particle.equals("POOF")
-                                || particle.equals("SMOKE") || particle.equals("LARGE_SMOKE")) {
-                            event.setCancelled(true);
-                        }
-                    } catch (RuntimeException ex) {
-                        // Unknown packet format: do not interfere with unrelated particles.
+                    if (!explosionEffectEnabled(event.getPlayer().getUniqueId())) {
+                        event.setCancelled(true);
                     }
                 }
             };
@@ -128,7 +125,7 @@ public final class KozalakSettings extends JavaPlugin implements Listener {
         boolean enabled = explosionEffectEnabled(player.getUniqueId());
         inv.setItem(33, button(enabled ? Material.TNT : Material.GRAY_DYE,
                 "Patlama Efekti: " + (enabled ? "ACIK" : "KAPALI"),
-                "TNT ve diger patlama parcaciklarini goster/gizle"));
+                "Patlama goruntusunu goster/gizle (deneysel)"));
     }
 
     private boolean totemEffectEnabled(UUID uuid) {
