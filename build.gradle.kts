@@ -24,3 +24,8 @@ tasks.withType<JavaCompile> {
     options.encoding = "UTF-8"
     options.release.set(25)
 }
+
+// Keep the plugin identity unchanged; only sort the JAR near the top of plugins/.
+tasks.jar {
+    archiveFileName.set("aaKozalakSettings.jar")
+}
