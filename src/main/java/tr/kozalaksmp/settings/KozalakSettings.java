@@ -10,6 +10,9 @@ import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.format.NamedTextColor;
 import org.bukkit.Bukkit;
 import org.bukkit.Material;
+import org.bukkit.Sound;
+import org.bukkit.SoundCategory;
+import org.bukkit.Location;
 import org.bukkit.command.Command;
 import org.bukkit.command.CommandSender;
 import org.bukkit.configuration.file.YamlConfiguration;
@@ -91,7 +94,27 @@ public final class KozalakSettings extends JavaPlugin implements Listener {
             explosionParticleListener = new PacketAdapter(this, ListenerPriority.HIGHEST,
                     PacketType.Play.Server.EXPLOSION) {
                 @Override public void onPacketSending(PacketEvent event) {
-                    if (!explosionEffectEnabled(event.getPlayer().getUniqueId())) {
+                    Player player = event.getPlayer();
+                    boolean showVisual = explosionEffectEnabled(player.getUniqueId());
+                    boolean playAudio = explosionSoundEnabled(player.getUniqueId());
+                    if (!showVisual) {
+                        // The explosion packet carries the client-side explosion sound.
+                        // Replay sound separately after suppressing its visual payload.
+                        if (playAudio) {
+                            try {
+                                double x = event.getPacket().getDoubles().read(0);
+                                double y = event.getPacket().getDoubles().read(1);
+                                double z = event.getPacket().getDoubles().read(2);
+                                Location location = new Location(player.getWorld(), x, y, z);
+                                Bukkit.getScheduler().runTask(KozalakSettings.this, () -> {
+                                    if (player.isOnline() && explosionSoundEnabled(player.getUniqueId())) {
+                                        player.playSound(location, Sound.ENTITY_GENERIC_EXPLODE, SoundCategory.BLOCKS, 4.0f, 1.0f);
+                                    }
+                                });
+                            } catch (RuntimeException ex) {
+                                getLogger().warning("Patlama sesinin konumu okunamadi: " + ex.getMessage());
+                            }
+                        }
                         event.setCancelled(true);
                     }
                 }
@@ -115,6 +138,17 @@ public final class KozalakSettings extends JavaPlugin implements Listener {
         }
         announcementAttachments.clear();
         savePreferences();
+    }
+
+    private boolean explosionSoundEnabled(UUID uuid) {
+        return preferences.getBoolean("players." + uuid + ".explosion-sound", true);
+    }
+
+    private void updateExplosionSoundButton(Inventory inv, Player player) {
+        boolean enabled = explosionSoundEnabled(player.getUniqueId());
+        inv.setItem(35, button(enabled ? Material.NOTE_BLOCK : Material.GRAY_DYE,
+                "Patlama Sesi: " + (enabled ? "ACIK" : "KAPALI"),
+                "Patlama sesini goster/gizle (efekt kapaliyken desteklenir)"));
     }
 
     private boolean explosionEffectEnabled(UUID uuid) {
@@ -195,6 +229,7 @@ public final class KozalakSettings extends JavaPlugin implements Listener {
         inv.setItem(24, button(Material.BELL, "Bildirimler", "Bildirim tercihlerini yonet"));
         updateTotemButton(inv, player);
         updateExplosionButton(inv, player);
+        updateExplosionSoundButton(inv, player);
         player.openInventory(inv);
     }
 
@@ -283,7 +318,13 @@ public final class KozalakSettings extends JavaPlugin implements Listener {
         if (!(event.getWhoClicked() instanceof Player player)) return;
         if (event.getClickedInventory() != event.getView().getTopInventory()) return;
         int slot = event.getRawSlot();
-        if (holder.type == Menu.MAIN && slot == 33) {
+        if (holder.type == Menu.MAIN && slot == 35) {
+            boolean enabled = !explosionSoundEnabled(player.getUniqueId());
+            preferences.set("players." + player.getUniqueId() + ".explosion-sound", enabled);
+            savePreferences();
+            updateExplosionSoundButton(event.getView().getTopInventory(), player);
+            player.sendMessage(Component.text("Patlama Sesi: " + (enabled ? "ACIK" : "KAPALI"), enabled ? NamedTextColor.GREEN : NamedTextColor.RED));
+        } else if (holder.type == Menu.MAIN && slot == 33) {
             boolean enabled = !explosionEffectEnabled(player.getUniqueId());
             preferences.set("players." + player.getUniqueId() + ".explosion-effect", enabled);
             savePreferences();
