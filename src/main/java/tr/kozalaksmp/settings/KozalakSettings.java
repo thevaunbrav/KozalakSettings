@@ -1,6 +1,11 @@
 package tr.kozalaksmp.settings;
 
 import io.papermc.paper.event.player.AsyncChatEvent;
+import com.comphenix.protocol.ProtocolLibrary;
+import com.comphenix.protocol.PacketType;
+import com.comphenix.protocol.events.PacketAdapter;
+import com.comphenix.protocol.events.PacketEvent;
+import com.comphenix.protocol.events.ListenerPriority;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.format.NamedTextColor;
 import org.bukkit.Bukkit;
@@ -35,6 +40,7 @@ import java.util.logging.Level;
 
 public final class KozalakSettings extends JavaPlugin implements Listener {
     private volatile boolean chatDebug = false;
+    private PacketAdapter totemPacketListener;
     private final Map<UUID, PermissionAttachment> lagMuteAttachments = new HashMap<>();
     private final Map<UUID, PermissionAttachment> announcementAttachments = new HashMap<>();
     private File preferencesFile;
@@ -67,10 +73,24 @@ public final class KozalakSettings extends JavaPlugin implements Listener {
             applyLagMute(online);
             applyAnnouncements(online);
         }
+        if (Bukkit.getPluginManager().isPluginEnabled("ProtocolLib")) {
+            totemPacketListener = new PacketAdapter(this, ListenerPriority.HIGHEST, PacketType.Play.Server.ENTITY_STATUS) {
+                @Override public void onPacketSending(PacketEvent event) {
+                    Player recipient = event.getPlayer();
+                    if (totemEffectEnabled(recipient.getUniqueId())) return;
+                    if (event.getPacket().getIntegers().read(0) != recipient.getEntityId()) return;
+                    if (event.getPacket().getBytes().read(0) == (byte) 35) event.setCancelled(true);
+                }
+            };
+            ProtocolLibrary.getProtocolManager().addPacketListener(totemPacketListener);
+        } else {
+            getLogger().warning("ProtocolLib bulunamadi: Totem Efekti ayari calismayacak.");
+        }
         getLogger().info("KozalakSettings hazir.");
     }
 
     @Override public void onDisable() {
+        if (totemPacketListener != null) ProtocolLibrary.getProtocolManager().removePacketListener(totemPacketListener);
         for (PermissionAttachment attachment : lagMuteAttachments.values()) {
             try { attachment.remove(); } catch (IllegalArgumentException ignored) { }
         }
@@ -80,6 +100,17 @@ public final class KozalakSettings extends JavaPlugin implements Listener {
         }
         announcementAttachments.clear();
         savePreferences();
+    }
+
+    private boolean totemEffectEnabled(UUID uuid) {
+        return preferences.getBoolean("players." + uuid + ".totem-effect", true);
+    }
+
+    private void updateTotemButton(Inventory inv, Player player) {
+        boolean enabled = totemEffectEnabled(player.getUniqueId());
+        inv.setItem(31, button(enabled ? Material.TOTEM_OF_UNDYING : Material.GRAY_DYE,
+                "Totem Efekti: " + (enabled ? "ACIK" : "KAPALI"),
+                "Buyuk totem animasyonunu goster/gizle"));
     }
 
     private boolean publicChatEnabled(UUID uuid) {
@@ -136,6 +167,7 @@ public final class KozalakSettings extends JavaPlugin implements Listener {
         Inventory inv = menu(Menu.MAIN, 54, "Kozalak SMP | Ayarlar");
         inv.setItem(22, button(Material.OAK_SIGN, "Sohbet", "Sohbet ayarlarini yonet"));
         inv.setItem(24, button(Material.BELL, "Bildirimler", "Bildirim tercihlerini yonet"));
+        updateTotemButton(inv, player);
         player.openInventory(inv);
     }
 
@@ -224,7 +256,13 @@ public final class KozalakSettings extends JavaPlugin implements Listener {
         if (!(event.getWhoClicked() instanceof Player player)) return;
         if (event.getClickedInventory() != event.getView().getTopInventory()) return;
         int slot = event.getRawSlot();
-        if (holder.type == Menu.MAIN && slot == 22) {
+        if (holder.type == Menu.MAIN && slot == 31) {
+            boolean enabled = !totemEffectEnabled(player.getUniqueId());
+            preferences.set("players." + player.getUniqueId() + ".totem-effect", enabled);
+            savePreferences();
+            updateTotemButton(event.getView().getTopInventory(), player);
+            player.sendMessage(Component.text("Totem Efekti: " + (enabled ? "ACIK" : "KAPALI"), enabled ? NamedTextColor.GREEN : NamedTextColor.RED));
+        } else if (holder.type == Menu.MAIN && slot == 22) {
             openChat(player);
         } else if (holder.type == Menu.MAIN && slot == 24) {
             openNotifications(player);
