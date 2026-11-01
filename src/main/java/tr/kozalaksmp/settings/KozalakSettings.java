@@ -13,6 +13,9 @@ import org.bukkit.Material;
 import org.bukkit.Sound;
 import org.bukkit.SoundCategory;
 import org.bukkit.Location;
+import org.bukkit.Particle;
+import org.bukkit.event.entity.EntityExplodeEvent;
+import org.bukkit.event.block.BlockExplodeEvent;
 import org.bukkit.command.Command;
 import org.bukkit.command.CommandSender;
 import org.bukkit.configuration.file.YamlConfiguration;
@@ -95,26 +98,11 @@ public final class KozalakSettings extends JavaPlugin implements Listener {
                     PacketType.Play.Server.EXPLOSION) {
                 @Override public void onPacketSending(PacketEvent event) {
                     Player player = event.getPlayer();
-                    boolean showVisual = explosionEffectEnabled(player.getUniqueId());
-                    boolean playAudio = explosionSoundEnabled(player.getUniqueId());
-                    if (!showVisual) {
-                        // The explosion packet carries the client-side explosion sound.
-                        // Replay sound separately after suppressing its visual payload.
-                        if (playAudio) {
-                            try {
-                                double x = event.getPacket().getDoubles().read(0);
-                                double y = event.getPacket().getDoubles().read(1);
-                                double z = event.getPacket().getDoubles().read(2);
-                                Location location = new Location(player.getWorld(), x, y, z);
-                                Bukkit.getScheduler().runTask(KozalakSettings.this, () -> {
-                                    if (player.isOnline() && explosionSoundEnabled(player.getUniqueId())) {
-                                        player.playSound(location, Sound.ENTITY_GENERIC_EXPLODE, SoundCategory.BLOCKS, 4.0f, 1.0f);
-                                    }
-                                });
-                            } catch (RuntimeException ex) {
-                                getLogger().warning("Patlama sesinin konumu okunamadi: " + ex.getMessage());
-                            }
-                        }
+                    // This packet creates both the vanilla explosion visual and sound.
+                    // When either is disabled, replace the requested components via
+                    // the explosion events below, independently for each recipient.
+                    if (!explosionEffectEnabled(player.getUniqueId())
+                            || !explosionSoundEnabled(player.getUniqueId())) {
                         event.setCancelled(true);
                     }
                 }
@@ -140,6 +128,33 @@ public final class KozalakSettings extends JavaPlugin implements Listener {
         savePreferences();
     }
 
+    @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
+    public void onEntityExplosion(EntityExplodeEvent event) {
+        deliverExplosionPreferences(event.getLocation());
+    }
+
+    @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
+    public void onBlockExplosion(BlockExplodeEvent event) {
+        deliverExplosionPreferences(event.getBlock().getLocation().add(0.5, 0.5, 0.5));
+    }
+
+    private void deliverExplosionPreferences(Location location) {
+        // Send only the component missing from the cancelled vanilla explosion packet.
+        // Never broadcast replacements to players who have both settings enabled.
+        for (Player player : location.getWorld().getPlayers()) {
+            if (player.getLocation().distanceSquared(location) > 256 * 256) continue;
+            boolean effect = explosionEffectEnabled(player.getUniqueId());
+            boolean sound = explosionSoundEnabled(player.getUniqueId());
+            if (effect && sound) continue;
+            if (effect) {
+                player.spawnParticle(Particle.EXPLOSION_EMITTER, location, 1);
+            }
+            if (sound) {
+                player.playSound(location, Sound.ENTITY_GENERIC_EXPLODE, SoundCategory.BLOCKS, 4.0f, 1.0f);
+            }
+        }
+    }
+
     private boolean explosionSoundEnabled(UUID uuid) {
         return preferences.getBoolean("players." + uuid + ".explosion-sound", true);
     }
@@ -148,7 +163,7 @@ public final class KozalakSettings extends JavaPlugin implements Listener {
         boolean enabled = explosionSoundEnabled(player.getUniqueId());
         inv.setItem(35, button(enabled ? Material.NOTE_BLOCK : Material.GRAY_DYE,
                 "Patlama Sesi: " + (enabled ? "ACIK" : "KAPALI"),
-                "Patlama sesini goster/gizle (efekt kapaliyken desteklenir)"));
+                "TNT, kristal ve diger patlama seslerini ac/kapat"));
     }
 
     private boolean explosionEffectEnabled(UUID uuid) {
