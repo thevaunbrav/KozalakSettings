@@ -36,6 +36,7 @@ import java.util.logging.Level;
 public final class KozalakSettings extends JavaPlugin implements Listener {
     private volatile boolean chatDebug = false;
     private final Map<UUID, PermissionAttachment> lagMuteAttachments = new HashMap<>();
+    private final Map<UUID, PermissionAttachment> announcementAttachments = new HashMap<>();
     private File preferencesFile;
     private YamlConfiguration preferences;
 
@@ -62,7 +63,10 @@ public final class KozalakSettings extends JavaPlugin implements Listener {
         preferencesFile = new File(getDataFolder(), "players.yml");
         preferences = YamlConfiguration.loadConfiguration(preferencesFile);
         Bukkit.getPluginManager().registerEvents(this, this);
-        for (Player online : Bukkit.getOnlinePlayers()) applyLagMute(online);
+        for (Player online : Bukkit.getOnlinePlayers()) {
+            applyLagMute(online);
+            applyAnnouncements(online);
+        }
         getLogger().info("KozalakSettings hazir.");
     }
 
@@ -71,6 +75,10 @@ public final class KozalakSettings extends JavaPlugin implements Listener {
             try { attachment.remove(); } catch (IllegalArgumentException ignored) { }
         }
         lagMuteAttachments.clear();
+        for (PermissionAttachment attachment : announcementAttachments.values()) {
+            try { attachment.remove(); } catch (IllegalArgumentException ignored) { }
+        }
+        announcementAttachments.clear();
         savePreferences();
     }
 
@@ -167,6 +175,14 @@ public final class KozalakSettings extends JavaPlugin implements Listener {
                 "Tikla: Herkes > Sadece Yetkililer > Kapali"));
     }
 
+    private void applyAnnouncements(Player player) {
+        PermissionAttachment attachment = announcementAttachments.computeIfAbsent(
+                player.getUniqueId(), id -> player.addAttachment(this));
+        attachment.setPermission("kozalaksettings.announcements",
+                notificationEnabled(player.getUniqueId(), "announcements"));
+        player.recalculatePermissions();
+    }
+
     private void applyLagMute(Player player) {
         PermissionAttachment attachment = lagMuteAttachments.computeIfAbsent(
                 player.getUniqueId(), id -> player.addAttachment(this));
@@ -195,6 +211,8 @@ public final class KozalakSettings extends JavaPlugin implements Listener {
                 NOTIFICATION_NAMES[index] + ": " + (enabled ? "ACIK" : "KAPALI"),
                 NOTIFICATION_KEYS[index].equals("combat")
                         ? "Oyuncu olum mesajlarini goster/gizle"
+                        : NOTIFICATION_KEYS[index].equals("announcements")
+                        ? "Otomatik sunucu duyurularini goster/gizle"
                         : NOTIFICATION_KEYS[index].equals("lag")
                         ? "Lag temizleyici mesajlarini ve seslerini goster/gizle"
                         : "Tercih kaydedilir; bildirim entegrasyonu henuz yok"));
@@ -231,6 +249,7 @@ public final class KozalakSettings extends JavaPlugin implements Listener {
                 preferences.set("players." + player.getUniqueId() + ".notifications." + key, enabled);
                 savePreferences();
                 if (key.equals("lag")) applyLagMute(player);
+                if (key.equals("announcements")) applyAnnouncements(player);
                 if (key.equals("combat") && Bukkit.getPluginManager().isPluginEnabled("SKDeathMessages")) {
                     boolean dispatched = Bukkit.dispatchCommand(player, "deathmessages " + (enabled ? "on" : "off"));
                     if (!dispatched) {
@@ -283,6 +302,7 @@ public final class KozalakSettings extends JavaPlugin implements Listener {
     @EventHandler(priority = EventPriority.MONITOR)
     public void onPlayerJoin(PlayerJoinEvent event) {
         applyLagMute(event.getPlayer());
+        applyAnnouncements(event.getPlayer());
         // Suppress vanilla join lines; SKWelcome's own lines must be disabled in its config.
         event.joinMessage(null);
         broadcastJoinLeave(event.getPlayer(), true);
@@ -291,6 +311,7 @@ public final class KozalakSettings extends JavaPlugin implements Listener {
     @EventHandler(priority = EventPriority.MONITOR)
     public void onPlayerQuit(PlayerQuitEvent event) {
         lagMuteAttachments.remove(event.getPlayer().getUniqueId());
+        announcementAttachments.remove(event.getPlayer().getUniqueId());
         event.quitMessage(null);
         broadcastJoinLeave(event.getPlayer(), false);
     }
