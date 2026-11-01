@@ -155,6 +155,17 @@ public final class KozalakSettings extends JavaPlugin implements Listener {
         }
     }
 
+    private boolean sidebarEnabled(UUID uuid) {
+        return preferences.getBoolean("players." + uuid + ".sidebar", true);
+    }
+
+    private void updateSidebarButton(Inventory inv, Player player) {
+        boolean enabled = sidebarEnabled(player.getUniqueId());
+        inv.setItem(29, button(enabled ? Material.PAPER : Material.GRAY_DYE,
+                "Skor Tablosu: " + (enabled ? "ACIK" : "KAPALI"),
+                "TAB skor tablosunu sadece kendin icin ac/kapat"));
+    }
+
     private boolean explosionSoundEnabled(UUID uuid) {
         return preferences.getBoolean("players." + uuid + ".explosion-sound", true);
     }
@@ -242,6 +253,7 @@ public final class KozalakSettings extends JavaPlugin implements Listener {
         Inventory inv = menu(Menu.MAIN, 54, "Kozalak SMP | Ayarlar");
         inv.setItem(22, button(Material.OAK_SIGN, "Sohbet", "Sohbet ayarlarini yonet"));
         inv.setItem(24, button(Material.BELL, "Bildirimler", "Bildirim tercihlerini yonet"));
+        updateSidebarButton(inv, player);
         updateTotemButton(inv, player);
         updateExplosionButton(inv, player);
         updateExplosionSoundButton(inv, player);
@@ -333,7 +345,22 @@ public final class KozalakSettings extends JavaPlugin implements Listener {
         if (!(event.getWhoClicked() instanceof Player player)) return;
         if (event.getClickedInventory() != event.getView().getTopInventory()) return;
         int slot = event.getRawSlot();
-        if (holder.type == Menu.MAIN && slot == 35) {
+        if (holder.type == Menu.MAIN && slot == 29) {
+            if (!Bukkit.getPluginManager().isPluginEnabled("TAB")) {
+                player.sendMessage(Component.text("TAB eklentisi aktif degil.", NamedTextColor.RED));
+                return;
+            }
+            // TAB's /sb command changes the sidebar for this player only.
+            // Enable remember-toggle-choice in TAB config for reconnect persistence.
+            if (!player.performCommand("sb")) {
+                player.sendMessage(Component.text("TAB /sb komutu calistirilamadi.", NamedTextColor.RED));
+                return;
+            }
+            boolean enabled = !sidebarEnabled(player.getUniqueId());
+            preferences.set("players." + player.getUniqueId() + ".sidebar", enabled);
+            savePreferences();
+            updateSidebarButton(event.getView().getTopInventory(), player);
+        } else if (holder.type == Menu.MAIN && slot == 35) {
             boolean enabled = !explosionSoundEnabled(player.getUniqueId());
             preferences.set("players." + player.getUniqueId() + ".explosion-sound", enabled);
             savePreferences();
