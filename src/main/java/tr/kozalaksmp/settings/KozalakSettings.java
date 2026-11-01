@@ -41,6 +41,7 @@ import java.util.logging.Level;
 public final class KozalakSettings extends JavaPlugin implements Listener {
     private volatile boolean chatDebug = false;
     private PacketAdapter totemPacketListener;
+    private PacketAdapter explosionParticleListener;
     private final Map<UUID, PermissionAttachment> lagMuteAttachments = new HashMap<>();
     private final Map<UUID, PermissionAttachment> announcementAttachments = new HashMap<>();
     private File preferencesFile;
@@ -83,6 +84,20 @@ public final class KozalakSettings extends JavaPlugin implements Listener {
                 }
             };
             ProtocolLibrary.getProtocolManager().addPacketListener(totemPacketListener);
+            explosionParticleListener = new PacketAdapter(this, ListenerPriority.HIGHEST, PacketType.Play.Server.WORLD_PARTICLES) {
+                @Override public void onPacketSending(PacketEvent event) {
+                    if (explosionEffectEnabled(event.getPlayer().getUniqueId())) return;
+                    try {
+                        String particle = String.valueOf(event.getPacket().getNewParticles().read(0).getParticle());
+                        if (particle.equalsIgnoreCase("EXPLOSION") || particle.equalsIgnoreCase("EXPLOSION_EMITTER")
+                                || particle.equalsIgnoreCase("EXPLOSION_NORMAL") || particle.equalsIgnoreCase("EXPLOSION_LARGE")
+                                || particle.equalsIgnoreCase("EXPLOSION_HUGE")) event.setCancelled(true);
+                    } catch (RuntimeException ex) {
+                        // Unknown packet format: do not interfere with unrelated particles.
+                    }
+                }
+            };
+            ProtocolLibrary.getProtocolManager().addPacketListener(explosionParticleListener);
         } else {
             getLogger().warning("ProtocolLib bulunamadi: Totem Efekti ayari calismayacak.");
         }
@@ -91,6 +106,7 @@ public final class KozalakSettings extends JavaPlugin implements Listener {
 
     @Override public void onDisable() {
         if (totemPacketListener != null) ProtocolLibrary.getProtocolManager().removePacketListener(totemPacketListener);
+        if (explosionParticleListener != null) ProtocolLibrary.getProtocolManager().removePacketListener(explosionParticleListener);
         for (PermissionAttachment attachment : lagMuteAttachments.values()) {
             try { attachment.remove(); } catch (IllegalArgumentException ignored) { }
         }
@@ -100,6 +116,17 @@ public final class KozalakSettings extends JavaPlugin implements Listener {
         }
         announcementAttachments.clear();
         savePreferences();
+    }
+
+    private boolean explosionEffectEnabled(UUID uuid) {
+        return preferences.getBoolean("players." + uuid + ".explosion-effect", true);
+    }
+
+    private void updateExplosionButton(Inventory inv, Player player) {
+        boolean enabled = explosionEffectEnabled(player.getUniqueId());
+        inv.setItem(33, button(enabled ? Material.TNT : Material.GRAY_DYE,
+                "Patlama Efekti: " + (enabled ? "ACIK" : "KAPALI"),
+                "TNT ve diger patlama parcaciklarini goster/gizle"));
     }
 
     private boolean totemEffectEnabled(UUID uuid) {
@@ -168,6 +195,7 @@ public final class KozalakSettings extends JavaPlugin implements Listener {
         inv.setItem(22, button(Material.OAK_SIGN, "Sohbet", "Sohbet ayarlarini yonet"));
         inv.setItem(24, button(Material.BELL, "Bildirimler", "Bildirim tercihlerini yonet"));
         updateTotemButton(inv, player);
+        updateExplosionButton(inv, player);
         player.openInventory(inv);
     }
 
@@ -256,7 +284,13 @@ public final class KozalakSettings extends JavaPlugin implements Listener {
         if (!(event.getWhoClicked() instanceof Player player)) return;
         if (event.getClickedInventory() != event.getView().getTopInventory()) return;
         int slot = event.getRawSlot();
-        if (holder.type == Menu.MAIN && slot == 31) {
+        if (holder.type == Menu.MAIN && slot == 33) {
+            boolean enabled = !explosionEffectEnabled(player.getUniqueId());
+            preferences.set("players." + player.getUniqueId() + ".explosion-effect", enabled);
+            savePreferences();
+            updateExplosionButton(event.getView().getTopInventory(), player);
+            player.sendMessage(Component.text("Patlama Efekti: " + (enabled ? "ACIK" : "KAPALI"), enabled ? NamedTextColor.GREEN : NamedTextColor.RED));
+        } else if (holder.type == Menu.MAIN && slot == 31) {
             boolean enabled = !totemEffectEnabled(player.getUniqueId());
             preferences.set("players." + player.getUniqueId() + ".totem-effect", enabled);
             savePreferences();
