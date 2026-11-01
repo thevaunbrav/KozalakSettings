@@ -88,10 +88,12 @@ public final class KozalakSettings extends JavaPlugin implements Listener {
                 @Override public void onPacketSending(PacketEvent event) {
                     if (explosionEffectEnabled(event.getPlayer().getUniqueId())) return;
                     try {
-                        String particle = String.valueOf(event.getPacket().getNewParticles().read(0).getParticle());
-                        if (particle.equalsIgnoreCase("EXPLOSION") || particle.equalsIgnoreCase("EXPLOSION_EMITTER")
-                                || particle.equalsIgnoreCase("EXPLOSION_NORMAL") || particle.equalsIgnoreCase("EXPLOSION_LARGE")
-                                || particle.equalsIgnoreCase("EXPLOSION_HUGE")) event.setCancelled(true);
+                        String particle = String.valueOf(event.getPacket().getNewParticles().read(0).getParticle())
+                                .toUpperCase(java.util.Locale.ROOT);
+                        if (particle.contains("EXPLOSION") || particle.equals("POOF")
+                                || particle.equals("SMOKE") || particle.equals("LARGE_SMOKE")) {
+                            event.setCancelled(true);
+                        }
                     } catch (RuntimeException ex) {
                         // Unknown packet format: do not interfere with unrelated particles.
                     }
