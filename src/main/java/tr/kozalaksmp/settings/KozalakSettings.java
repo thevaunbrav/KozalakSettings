@@ -4,6 +4,7 @@ import io.papermc.paper.event.player.AsyncChatEvent;
 import com.comphenix.protocol.ProtocolLibrary;
 import com.comphenix.protocol.PacketType;
 import com.comphenix.protocol.events.PacketAdapter;
+import com.comphenix.protocol.events.PacketContainer;
 import com.comphenix.protocol.events.PacketEvent;
 import com.comphenix.protocol.events.ListenerPriority;
 import net.kyori.adventure.text.Component;
@@ -48,6 +49,7 @@ public final class KozalakSettings extends JavaPlugin implements Listener {
     private volatile boolean chatDebug = false;
     private PacketAdapter totemPacketListener;
     private PacketAdapter explosionParticleListener;
+    private PacketAdapter playerSpawnListener;
     private final Map<UUID, PermissionAttachment> lagMuteAttachments = new HashMap<>();
     private final Map<UUID, PermissionAttachment> announcementAttachments = new HashMap<>();
     private File preferencesFile;
@@ -79,7 +81,7 @@ public final class KozalakSettings extends JavaPlugin implements Listener {
         for (Player online : Bukkit.getOnlinePlayers()) {
             applyLagMute(online);
             applyAnnouncements(online);
-            applyPlayerVisibility(online);
+            // Player visibility is restored after ProtocolLib listeners are installed.
         }
         if (Bukkit.getPluginManager().isPluginEnabled("ProtocolLib")) {
             totemPacketListener = new PacketAdapter(this, ListenerPriority.HIGHEST, PacketType.Play.Server.ENTITY_STATUS) {
@@ -109,6 +111,25 @@ public final class KozalakSettings extends JavaPlugin implements Listener {
                 }
             };
             ProtocolLibrary.getProtocolManager().addPacketListener(explosionParticleListener);
+            // Only suppress player entity spawns. PLAYER_INFO packets stay intact,
+            // keeping TAB entries and player-name command completion available.
+            playerSpawnListener = new PacketAdapter(this, ListenerPriority.HIGHEST,
+                    PacketType.Play.Server.SPAWN_ENTITY) {
+                @Override public void onPacketSending(PacketEvent event) {
+                    if (playerVisibilityEnabled(event.getPlayer().getUniqueId())) return;
+                    try {
+                        UUID spawnedId = event.getPacket().getUUIDs().read(0);
+                        Player spawned = Bukkit.getPlayer(spawnedId);
+                        if (spawned != null && !spawned.equals(event.getPlayer())) {
+                            event.setCancelled(true);
+                        }
+                    } catch (RuntimeException ex) {
+                        // Do not suppress unknown spawn packet formats.
+                    }
+                }
+            };
+            ProtocolLibrary.getProtocolManager().addPacketListener(playerSpawnListener);
+            for (Player online : Bukkit.getOnlinePlayers()) applyPlayerVisibility(online);
         } else {
             getLogger().warning("ProtocolLib bulunamadi: Totem Efekti ayari calismayacak.");
         }
@@ -118,6 +139,7 @@ public final class KozalakSettings extends JavaPlugin implements Listener {
     @Override public void onDisable() {
         if (totemPacketListener != null) ProtocolLibrary.getProtocolManager().removePacketListener(totemPacketListener);
         if (explosionParticleListener != null) ProtocolLibrary.getProtocolManager().removePacketListener(explosionParticleListener);
+        if (playerSpawnListener != null) ProtocolLibrary.getProtocolManager().removePacketListener(playerSpawnListener);
         for (PermissionAttachment attachment : lagMuteAttachments.values()) {
             try { attachment.remove(); } catch (IllegalArgumentException ignored) { }
         }
@@ -164,8 +186,21 @@ public final class KozalakSettings extends JavaPlugin implements Listener {
         boolean visible = playerVisibilityEnabled(viewer.getUniqueId());
         for (Player target : Bukkit.getOnlinePlayers()) {
             if (target.equals(viewer)) continue;
-            if (visible) viewer.showPlayer(this, target);
-            else viewer.hidePlayer(this, target);
+            // Undo old hidePlayer state so the player list is populated again.
+            viewer.showPlayer(this, target);
+            if (!visible) hidePlayerEntityOnly(viewer, target);
+        }
+    }
+
+    private void hidePlayerEntityOnly(Player viewer, Player target) {
+        if (!Bukkit.getPluginManager().isPluginEnabled("ProtocolLib")) return;
+        try {
+            PacketContainer remove = ProtocolLibrary.getProtocolManager()
+                    .createPacket(PacketType.Play.Server.ENTITY_DESTROY);
+            remove.getIntLists().write(0, java.util.List.of(target.getEntityId()));
+            ProtocolLibrary.getProtocolManager().sendServerPacket(viewer, remove);
+        } catch (Exception ex) {
+            getLogger().warning("Oyuncu gorunurlugu paketi gonderilemedi: " + ex.getMessage());
         }
     }
 
@@ -492,7 +527,7 @@ public final class KozalakSettings extends JavaPlugin implements Listener {
             applyPlayerVisibility(joining);
             for (Player viewer : Bukkit.getOnlinePlayers()) {
                 if (!viewer.equals(joining) && !playerVisibilityEnabled(viewer.getUniqueId())) {
-                    viewer.hidePlayer(this, joining);
+                    hidePlayerEntityOnly(viewer, joining);
                 }
             }
         });
