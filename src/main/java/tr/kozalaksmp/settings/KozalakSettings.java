@@ -103,7 +103,7 @@ public final class KozalakSettings extends JavaPlugin implements Listener {
             // Signed player chat is a separate packet from system messages.
             // Do not cancel SYSTEM_CHAT: that would also hide commands, TPA and alerts.
             publicChatPacketListener = new PacketAdapter(this, ListenerPriority.HIGHEST,
-                    PacketType.Play.Server.PLAYER_CHAT) {
+                    PacketType.Play.Server.CHAT) {
                 @Override public void onPacketSending(PacketEvent event) {
                     if (mutedPublicChat.contains(event.getPlayer().getUniqueId())) {
                         event.setCancelled(true);
