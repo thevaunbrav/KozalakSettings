@@ -187,8 +187,17 @@ public final class KozalakSettings extends JavaPlugin implements Listener {
         for (Player target : Bukkit.getOnlinePlayers()) {
             if (target.equals(viewer)) continue;
             // Undo old hidePlayer state so the player list is populated again.
-            viewer.showPlayer(this, target);
-            if (!visible) hidePlayerEntityOnly(viewer, target);
+            if (visible) {
+                // A previous ENTITY_DESTROY packet removed the client-side entity.
+                // showPlayer alone is a no-op if Bukkit still considers it visible.
+                // Force a fresh spawn, restoring the entity and its metadata.
+                viewer.hidePlayer(this, target);
+                viewer.showPlayer(this, target);
+            } else {
+                // Keep PLAYER_INFO intact for TAB and /tpa completion.
+                viewer.showPlayer(this, target);
+                hidePlayerEntityOnly(viewer, target);
+            }
         }
     }
 
