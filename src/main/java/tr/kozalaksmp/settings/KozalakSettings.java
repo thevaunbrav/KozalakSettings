@@ -46,7 +46,8 @@ import java.util.UUID;
 import java.util.logging.Level;
 
 public final class KozalakSettings extends JavaPlugin implements Listener {
-    private volatile boolean chatDebug = false;
+    private final java.util.Set<UUID> mutedPublicChat = java.util.concurrent.ConcurrentHashMap.newKeySet();
+    private PacketAdapter publicChatPacketListener;
     private PacketAdapter totemPacketListener;
     private PacketAdapter explosionParticleListener;
     private PacketAdapter playerSpawnListener;
@@ -77,6 +78,12 @@ public final class KozalakSettings extends JavaPlugin implements Listener {
         }
         preferencesFile = new File(getDataFolder(), "players.yml");
         preferences = YamlConfiguration.loadConfiguration(preferencesFile);
+        for (String id : preferences.getConfigurationSection("players") == null ? java.util.Set.<String>of() : preferences.getConfigurationSection("players").getKeys(false)) {
+            try {
+                UUID uuid = UUID.fromString(id);
+                if (!preferences.getBoolean("players." + id + ".public-chat", true)) mutedPublicChat.add(uuid);
+            } catch (IllegalArgumentException ignored) { }
+        }
         Bukkit.getPluginManager().registerEvents(this, this);
         for (Player online : Bukkit.getOnlinePlayers()) {
             applyLagMute(online);
@@ -93,6 +100,17 @@ public final class KozalakSettings extends JavaPlugin implements Listener {
                 }
             };
             ProtocolLibrary.getProtocolManager().addPacketListener(totemPacketListener);
+            // Signed player chat is a separate packet from system messages.
+            // Do not cancel SYSTEM_CHAT: that would also hide commands, TPA and alerts.
+            publicChatPacketListener = new PacketAdapter(this, ListenerPriority.HIGHEST,
+                    PacketType.Play.Server.PLAYER_CHAT) {
+                @Override public void onPacketSending(PacketEvent event) {
+                    if (mutedPublicChat.contains(event.getPlayer().getUniqueId())) {
+                        event.setCancelled(true);
+                    }
+                }
+            };
+            ProtocolLibrary.getProtocolManager().addPacketListener(publicChatPacketListener);
             // TNT and other explosion visuals may be produced by the client from
             // the explosion packet itself, not only from WORLD_PARTICLES.
             // Cancel only the visual explosion packet for opted-out players.
@@ -138,6 +156,7 @@ public final class KozalakSettings extends JavaPlugin implements Listener {
 
     @Override public void onDisable() {
         if (totemPacketListener != null) ProtocolLibrary.getProtocolManager().removePacketListener(totemPacketListener);
+        if (publicChatPacketListener != null) ProtocolLibrary.getProtocolManager().removePacketListener(publicChatPacketListener);
         if (explosionParticleListener != null) ProtocolLibrary.getProtocolManager().removePacketListener(explosionParticleListener);
         if (playerSpawnListener != null) ProtocolLibrary.getProtocolManager().removePacketListener(playerSpawnListener);
         for (PermissionAttachment attachment : lagMuteAttachments.values()) {
@@ -270,6 +289,8 @@ public final class KozalakSettings extends JavaPlugin implements Listener {
 
     private void setPublicChat(UUID uuid, boolean enabled) {
         preferences.set("players." + uuid + ".public-chat", enabled);
+        if (enabled) mutedPublicChat.remove(uuid);
+        else mutedPublicChat.add(uuid);
         savePreferences();
     }
 
@@ -282,16 +303,6 @@ public final class KozalakSettings extends JavaPlugin implements Listener {
                                        @NotNull String label, @NotNull String[] args) {
         if (!(sender instanceof Player player)) {
             sender.sendMessage("Bu komut sadece oyuncular icindir.");
-            return true;
-        }
-        if (args.length == 1 && args[0].equalsIgnoreCase("debug")) {
-            if (!player.isOp()) {
-                player.sendMessage(Component.text("Bu komut icin OP gerekli.", NamedTextColor.RED));
-                return true;
-            }
-            chatDebug = !chatDebug;
-            player.sendMessage(Component.text("Chat debug: " + (chatDebug ? "ACIK" : "KAPALI"), NamedTextColor.YELLOW));
-            player.sendMessage(Component.text("Genel Sohbet ayarin: " + (publicChatEnabled(player.getUniqueId()) ? "ACIK" : "KAPALI"), NamedTextColor.YELLOW));
             return true;
         }
         openMain(player);
@@ -336,7 +347,7 @@ public final class KozalakSettings extends JavaPlugin implements Listener {
     private void updateChatButton(Inventory inv, Player player) {
         boolean enabled = publicChatEnabled(player.getUniqueId());
         inv.setItem(13, button(enabled ? Material.LIME_DYE : Material.GRAY_DYE,
-                enabled ? "Public Chat: ACIK" : "Public Chat: KAPALI",
+                enabled ? "Genel Sohbet: ACIK" : "Genel Sohbet: KAPALI",
                 "Diger oyuncularin genel sohbet mesajlarini goster/gizle"));
     }
 
@@ -491,7 +502,7 @@ public final class KozalakSettings extends JavaPlugin implements Listener {
             boolean enabled = !publicChatEnabled(player.getUniqueId());
             setPublicChat(player.getUniqueId(), enabled);
             updateChatButton(event.getView().getTopInventory(), player);
-            player.sendMessage(Component.text("Public Chat " + (enabled ? "ACIK" : "KAPALI"),
+            player.sendMessage(Component.text("Genel Sohbet " + (enabled ? "ACIK" : "KAPALI"),
                     enabled ? NamedTextColor.GREEN : NamedTextColor.RED));
         } else if (holder.type == Menu.CHAT && slot == 18) {
             openMain(player);
@@ -566,19 +577,12 @@ public final class KozalakSettings extends JavaPlugin implements Listener {
         event.getPlayer().sendMessage(Component.text("Bu oyuncu TPA isteklerini kapatmis.", NamedTextColor.RED));
     }
 
-    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
+    @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
     public void onChat(AsyncChatEvent event) {
-        int before = event.viewers().size();
+        // Filter Paper chat viewers too, in case the server sends via AsyncChatEvent.
+        // Some chat plugins instead broadcast SYSTEM_CHAT messages, which cannot
+        // safely be distinguished from private messages or server notifications.
         event.viewers().removeIf(viewer -> viewer instanceof Player recipient
-                && !publicChatEnabled(recipient.getUniqueId()));
-        if (chatDebug) {
-            getLogger().info("[CHAT DEBUG] AsyncChatEvent: sender=" + event.getPlayer().getName()
-                    + " viewersBefore=" + before + " viewersAfter=" + event.viewers().size());
-            for (Player online : Bukkit.getOnlinePlayers()) {
-                getLogger().info("[CHAT DEBUG] player=" + online.getName()
-                        + " publicChat=" + publicChatEnabled(online.getUniqueId())
-                        + " inViewers=" + event.viewers().contains(online));
-            }
-        }
+                && mutedPublicChat.contains(recipient.getUniqueId()));
     }
 }
