@@ -345,6 +345,7 @@ public final class KozalakSettings extends JavaPlugin implements Listener {
     private void openChat(Player player) {
         Inventory inv = menu(Menu.CHAT, 27, "Kozalak SMP | Sohbet");
         updateChatButton(inv, player);
+        updatePrivateMessageButton(inv, player);
         inv.setItem(18, button(Material.ARROW, "Geri", "Ana menuye don"));
         player.openInventory(inv);
     }
@@ -354,6 +355,17 @@ public final class KozalakSettings extends JavaPlugin implements Listener {
         inv.setItem(13, button(enabled ? Material.LIME_DYE : Material.GRAY_DYE,
                 enabled ? "Genel Sohbet: ACIK" : "Genel Sohbet: KAPALI",
                 "Diger oyuncularin genel sohbet mesajlarini goster/gizle"));
+    }
+
+    private boolean privateMessagesEnabled(UUID uuid) {
+        return preferences.getBoolean("players." + uuid + ".private-messages", true);
+    }
+
+    private void updatePrivateMessageButton(Inventory inv, Player player) {
+        boolean enabled = privateMessagesEnabled(player.getUniqueId());
+        inv.setItem(15, button(enabled ? Material.WRITABLE_BOOK : Material.BARRIER,
+                "Ozel Mesajlar: " + (enabled ? "ACIK" : "KAPALI"),
+                "Diger oyunculardan gelen /msg mesajlarini kabul et/engelle"));
     }
 
     private JoinLeaveMode joinLeaveMode(UUID uuid) {
@@ -509,6 +521,13 @@ public final class KozalakSettings extends JavaPlugin implements Listener {
             updateChatButton(event.getView().getTopInventory(), player);
             player.sendMessage(Component.text("Genel Sohbet " + (enabled ? "ACIK" : "KAPALI"),
                     enabled ? NamedTextColor.GREEN : NamedTextColor.RED));
+        } else if (holder.type == Menu.CHAT && slot == 15) {
+            boolean enabled = !privateMessagesEnabled(player.getUniqueId());
+            preferences.set("players." + player.getUniqueId() + ".private-messages", enabled);
+            savePreferences();
+            updatePrivateMessageButton(event.getView().getTopInventory(), player);
+            player.sendMessage(Component.text("Ozel Mesajlar: " + (enabled ? "ACIK" : "KAPALI"),
+                    enabled ? NamedTextColor.GREEN : NamedTextColor.RED));
         } else if (holder.type == Menu.CHAT && slot == 18) {
             openMain(player);
         }
@@ -569,6 +588,24 @@ public final class KozalakSettings extends JavaPlugin implements Listener {
         announcementAttachments.remove(event.getPlayer().getUniqueId());
         event.quitMessage(null);
         broadcastJoinLeave(event.getPlayer(), false);
+    }
+
+    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
+    public void onPrivateMessageCommand(PlayerCommandPreprocessEvent event) {
+        String[] parts = event.getMessage().trim().split("\\s+", 3);
+        if (parts.length < 3) return;
+        String command = parts[0].toLowerCase(java.util.Locale.ROOT);
+        int colon = command.indexOf(':');
+        if (colon >= 0) {
+            if (!command.substring(1, colon).equals("essentials")) return;
+            command = "/" + command.substring(colon + 1);
+        }
+        if (!java.util.Set.of("/msg", "/tell", "/w", "/whisper", "/m", "/message", "/pm").contains(command)) return;
+        Player recipient = Bukkit.getPlayerExact(parts[1]);
+        if (recipient == null || privateMessagesEnabled(recipient.getUniqueId())) return;
+        event.setCancelled(true);
+        event.getPlayer().sendMessage(Component.text(
+                "Bu oyuncu ozel mesajlari kapatmis.", NamedTextColor.RED));
     }
 
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
