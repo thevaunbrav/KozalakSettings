@@ -346,6 +346,7 @@ public final class KozalakSettings extends JavaPlugin implements Listener {
         Inventory inv = menu(Menu.CHAT, 27, "Kozalak SMP | Sohbet");
         updateChatButton(inv, player);
         updatePrivateMessageButton(inv, player);
+        updateTradeButton(inv, player);
         inv.setItem(18, button(Material.ARROW, "Geri", "Ana menuye don"));
         player.openInventory(inv);
     }
@@ -366,6 +367,17 @@ public final class KozalakSettings extends JavaPlugin implements Listener {
         inv.setItem(15, button(enabled ? Material.WRITABLE_BOOK : Material.BARRIER,
                 "Ozel Mesajlar: " + (enabled ? "ACIK" : "KAPALI"),
                 "Diger oyunculardan gelen /msg mesajlarini kabul et/engelle"));
+    }
+
+    private boolean tradeRequestsEnabled(UUID uuid) {
+        return preferences.getBoolean("players." + uuid + ".trade-requests", true);
+    }
+
+    private void updateTradeButton(Inventory inv, Player player) {
+        boolean enabled = tradeRequestsEnabled(player.getUniqueId());
+        inv.setItem(11, button(enabled ? Material.EMERALD : Material.GRAY_DYE,
+                "Takas Istekleri: " + (enabled ? "ACIK" : "KAPALI"),
+                "SKTrade takas isteklerini kabul et/engelle"));
     }
 
     private JoinLeaveMode joinLeaveMode(UUID uuid) {
@@ -521,6 +533,22 @@ public final class KozalakSettings extends JavaPlugin implements Listener {
             updateChatButton(event.getView().getTopInventory(), player);
             player.sendMessage(Component.text("Genel Sohbet " + (enabled ? "ACIK" : "KAPALI"),
                     enabled ? NamedTextColor.GREEN : NamedTextColor.RED));
+        } else if (holder.type == Menu.CHAT && slot == 11) {
+            if (!Bukkit.getPluginManager().isPluginEnabled("SKTrade")) {
+                player.sendMessage(Component.text("SKTrade eklentisi aktif degil.", NamedTextColor.RED));
+                return;
+            }
+            if (!player.hasPermission("sktrade.use")) {
+                player.sendMessage(Component.text("Takas komutu icin yetkin yok.", NamedTextColor.RED));
+                return;
+            }
+            // Use SKTrade's own toggle so its internal request checks remain authoritative.
+            if (player.performCommand("trade toggle")) {
+                boolean enabled = !tradeRequestsEnabled(player.getUniqueId());
+                preferences.set("players." + player.getUniqueId() + ".trade-requests", enabled);
+                savePreferences();
+                updateTradeButton(event.getView().getTopInventory(), player);
+            }
         } else if (holder.type == Menu.CHAT && slot == 15) {
             boolean enabled = !privateMessagesEnabled(player.getUniqueId());
             preferences.set("players." + player.getUniqueId() + ".private-messages", enabled);
@@ -588,6 +616,18 @@ public final class KozalakSettings extends JavaPlugin implements Listener {
         announcementAttachments.remove(event.getPlayer().getUniqueId());
         event.quitMessage(null);
         broadcastJoinLeave(event.getPlayer(), false);
+    }
+
+    @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
+    public void onTradeToggleCommand(PlayerCommandPreprocessEvent event) {
+        // Keep the menu label in sync if the player uses SKTrade's native toggle.
+        if (!Bukkit.getPluginManager().isPluginEnabled("SKTrade")) return;
+        if (!event.getPlayer().hasPermission("sktrade.use")) return;
+        String command = event.getMessage().trim().toLowerCase(java.util.Locale.ROOT);
+        if (!command.equals("/trade toggle") && !command.equals("/takasdegistir")) return;
+        UUID uuid = event.getPlayer().getUniqueId();
+        preferences.set("players." + uuid + ".trade-requests", !tradeRequestsEnabled(uuid));
+        savePreferences();
     }
 
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
