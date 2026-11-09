@@ -141,6 +141,7 @@ public final class KozalakSettings extends JavaPlugin implements Listener {
         } else {
             getLogger().warning("ProtocolLib bulunamadi: Totem Efekti ayari calismayacak.");
         }
+        new AdvancementRewards(this);
         getLogger().info("KozalakSettings hazir.");
     }
 
