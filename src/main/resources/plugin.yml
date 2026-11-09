@@ -9,3 +9,8 @@ commands:
   settings:
     description: Oyuncu ayarlarini acar
     usage: /settings
+
+  basarimlar:
+    description: Minecraft basarimlarini ve puan odullerini gosterir
+    usage: /basarimlar
+    aliases: [başarımlar, basarımlar]
