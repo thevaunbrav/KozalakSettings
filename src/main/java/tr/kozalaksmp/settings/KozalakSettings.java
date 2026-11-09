@@ -47,10 +47,10 @@ import java.util.logging.Level;
 
 public final class KozalakSettings extends JavaPlugin implements Listener {
     private final java.util.Set<UUID> mutedPublicChat = java.util.concurrent.ConcurrentHashMap.newKeySet();
-    private PacketAdapter publicChatPacketListener;
     private PacketAdapter totemPacketListener;
     private PacketAdapter explosionParticleListener;
     private PacketAdapter playerSpawnListener;
+    private final Map<UUID, PermissionAttachment> publicChatAttachments = new HashMap<>();
     private final Map<UUID, PermissionAttachment> lagMuteAttachments = new HashMap<>();
     private final Map<UUID, PermissionAttachment> announcementAttachments = new HashMap<>();
     private File preferencesFile;
@@ -88,6 +88,7 @@ public final class KozalakSettings extends JavaPlugin implements Listener {
         for (Player online : Bukkit.getOnlinePlayers()) {
             applyLagMute(online);
             applyAnnouncements(online);
+            applyPublicChatPermission(online);
             // Player visibility is restored after ProtocolLib listeners are installed.
         }
         if (Bukkit.getPluginManager().isPluginEnabled("ProtocolLib")) {
@@ -100,17 +101,6 @@ public final class KozalakSettings extends JavaPlugin implements Listener {
                 }
             };
             ProtocolLibrary.getProtocolManager().addPacketListener(totemPacketListener);
-            // Signed player chat is a separate packet from system messages.
-            // Do not cancel SYSTEM_CHAT: that would also hide commands, TPA and alerts.
-            publicChatPacketListener = new PacketAdapter(this, ListenerPriority.HIGHEST,
-                    PacketType.Play.Server.CHAT) {
-                @Override public void onPacketSending(PacketEvent event) {
-                    if (mutedPublicChat.contains(event.getPlayer().getUniqueId())) {
-                        event.setCancelled(true);
-                    }
-                }
-            };
-            ProtocolLibrary.getProtocolManager().addPacketListener(publicChatPacketListener);
             // TNT and other explosion visuals may be produced by the client from
             // the explosion packet itself, not only from WORLD_PARTICLES.
             // Cancel only the visual explosion packet for opted-out players.
@@ -156,7 +146,6 @@ public final class KozalakSettings extends JavaPlugin implements Listener {
 
     @Override public void onDisable() {
         if (totemPacketListener != null) ProtocolLibrary.getProtocolManager().removePacketListener(totemPacketListener);
-        if (publicChatPacketListener != null) ProtocolLibrary.getProtocolManager().removePacketListener(publicChatPacketListener);
         if (explosionParticleListener != null) ProtocolLibrary.getProtocolManager().removePacketListener(explosionParticleListener);
         if (playerSpawnListener != null) ProtocolLibrary.getProtocolManager().removePacketListener(playerSpawnListener);
         for (PermissionAttachment attachment : lagMuteAttachments.values()) {
@@ -167,6 +156,10 @@ public final class KozalakSettings extends JavaPlugin implements Listener {
             try { attachment.remove(); } catch (IllegalArgumentException ignored) { }
         }
         announcementAttachments.clear();
+        for (PermissionAttachment attachment : publicChatAttachments.values()) {
+            try { attachment.remove(); } catch (IllegalArgumentException ignored) { }
+        }
+        publicChatAttachments.clear();
         savePreferences();
     }
 
@@ -291,7 +284,19 @@ public final class KozalakSettings extends JavaPlugin implements Listener {
         preferences.set("players." + uuid + ".public-chat", enabled);
         if (enabled) mutedPublicChat.remove(uuid);
         else mutedPublicChat.add(uuid);
+        Player online = Bukkit.getPlayer(uuid);
+        if (online != null) applyPublicChatPermission(online);
         savePreferences();
+    }
+
+    // Skript chat broadcasts use 'send components' and bypass AsyncChatEvent.
+    // Expose only the receiver's chat preference as a temporary permission.
+    private void applyPublicChatPermission(Player player) {
+        PermissionAttachment attachment = publicChatAttachments.computeIfAbsent(
+                player.getUniqueId(), ignored -> player.addAttachment(this));
+        attachment.setPermission("kozalaksettings.chat.muted",
+                !publicChatEnabled(player.getUniqueId()));
+        player.recalculatePermissions();
     }
 
     private void savePreferences() {
@@ -541,6 +546,7 @@ public final class KozalakSettings extends JavaPlugin implements Listener {
     public void onPlayerJoin(PlayerJoinEvent event) {
         applyLagMute(event.getPlayer());
         applyAnnouncements(event.getPlayer());
+        applyPublicChatPermission(event.getPlayer());
         Bukkit.getScheduler().runTask(this, () -> {
             Player joining = event.getPlayer();
             if (!joining.isOnline()) return;
@@ -559,6 +565,7 @@ public final class KozalakSettings extends JavaPlugin implements Listener {
     @EventHandler(priority = EventPriority.MONITOR)
     public void onPlayerQuit(PlayerQuitEvent event) {
         lagMuteAttachments.remove(event.getPlayer().getUniqueId());
+        publicChatAttachments.remove(event.getPlayer().getUniqueId());
         announcementAttachments.remove(event.getPlayer().getUniqueId());
         event.quitMessage(null);
         broadcastJoinLeave(event.getPlayer(), false);
